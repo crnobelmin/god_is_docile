@@ -61,6 +61,8 @@ HTML_UPLOAD_INTERFACE = """
 def index():
     return HTML_UPLOAD_INTERFACE
 
+import subprocess  # Ensure this is imported at the top of your flask_server.py
+
 @app.route('/upload', methods=['POST'])
 def upload_file():
     if 'file' not in request.files:
@@ -71,27 +73,38 @@ def upload_file():
     if file.filename == '' or not custom_name:
         return "Missing file or filename configuration", 400
         
-    # Extract extension (e.g., .jpg)
     file_ext = file.filename.split('.')[-1].lower()
     if file_ext not in ALLOWED_EXTENSIONS:
         return "Invalid file type. Please use JPG, JPEG, or PNG.", 400
         
     if file:
-        # Sanitize name to prevent path injection attacks (strips spaces/weird characters)
         safe_base = "".join([c for c in custom_name if c.isalpha() or c.isdigit() or c in ('-', '_')]).rstrip()
         if not safe_base:
             safe_base = "uploaded_matrix_asset"
             
+        # Target image paths
         filename = f"{safe_base}.{file_ext}"
-        filepath = os.path.join(UPLOAD_FOLDER, filename)
-        file.save(filepath)
+        image_filepath = os.path.join(UPLOAD_FOLDER, filename)
         
+        # Target audio output path (.npy binary format)
+        audio_filename = f"{safe_base}.npy"
+        audio_filepath = os.path.join(UPLOAD_FOLDER, audio_filename)
+        
+        # 1. Save the image file to disk immediately
+        file.save(image_filepath)
+        
+        # 2. Fire and Forget: Spawn the math transformer in a separate OS process
+        # This takes 0 milliseconds of Flask's time!
+        subprocess.Popen(["python", "transformer.py", image_filepath, audio_filepath])
+        
+        # 3. Immediately reply to the user browser
         return f"""
         <body style="background:#121212;color:#e0e0e0;text-align:center;font-family:sans-serif;padding-top:50px;">
-            <h2>✅ Matrix Asset Saved as: {filename}</h2>
-            <p>The matrix engine is tracking this asset identity.</p>
-            <a href="/" style="color:#007bff; text-decoration:none; margin-right: 20px;">Upload another</a>
-            <a href="/gallery" style="color:#28a745; text-decoration:none;">Go to Gallery ➡️</a>
+            <h2>✅ Image Transmitted!</h2>
+            <p>The system accepted '<b>{filename}</b>'.</p>
+            <p style="color: #888; font-size: 14px;">The background worker is currently converting these pixels into an audio stream...</p>
+            <a href="/" style="background:#007bff; color:white; text-decoration:none; padding:10px 20px; border-radius:4px; margin-right: 10px;">Upload Another</a>
+            <a href="/gallery" style="background:#28a745; color:white; text-decoration:none; padding:10px 20px; border-radius:4px;">View Gallery ➡️</a>
         </body>
         """
 
