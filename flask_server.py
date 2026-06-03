@@ -1,6 +1,6 @@
 import os
-from flask import Flask, request, redirect, render_code = """
-""" # Using a string for the HTML template to keep it single-file
+from flask import Flask, request, redirect, render_code = """"""
+# Using a string for the HTML template to keep it single-file
 
 app = Flask(__name__)
 
