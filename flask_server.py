@@ -1,11 +1,10 @@
 import os
-from flask import Flask, request, redirect, render_code = """"""
-# Using a string for the HTML template to keep it single-file
+from flask import Flask, request, redirect
 
 app = Flask(__name__)
 
 # Point this directly to where your audio engine looks for images
-UPLOAD_FOLDER = os.path.expanduser('~/multiframe_audio/audio_files')
+UPLOAD_FOLDER = os.path.expanduser('~/godisdocile/god_is_docile/audio_files')
 ALLOWED_EXTENSIONS = {'jpg', 'jpeg', 'png'}
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -52,7 +51,6 @@ def upload_file():
         
     if file:
         # Standardize filename so the audio engine can find it predictably
-        # e.g., saving it as input_image.jpg
         filename = "input_image.jpg" 
         filepath = os.path.join(UPLOAD_FOLDER, filename)
         file.save(filepath)
@@ -66,6 +64,5 @@ def upload_file():
     return "Invalid file type", 400
 
 if __name__ == '__main__':
-    # Host on 0.0.0.0 to broadcast to the entire local Wi-Fi network
-    # Port 5000 is default for Flask, keeping 5001/6000 clear for audio data
+    # Broadcast to the local Wi-Fi network on Port 5000
     app.run(host='0.0.0.0', port=5000, debug=False)
