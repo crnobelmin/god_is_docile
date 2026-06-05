@@ -1,24 +1,31 @@
 import os
-import glob
+import sys
 import base64
-import numpy as np
-from PIL import Image
-from scipy.io import wavfile
-from flask import Flask, request, redirect, url_for, render_template_string, flash
+import subprocess
+import threading
+from flask import Flask, request, redirect, url_for, render_template_string, flash, send_from_directory
 
 app = Flask(__name__)
-app.secret_key = 'kustos_session_key_2026' # Used for flashing messages
+app.secret_key = 'kustos_session_key_2026'
 
-# Core Directories
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 GROUPS_DIR = os.path.join(BASE_DIR, 'static', 'visitor_groups')
 os.makedirs(GROUPS_DIR, exist_ok=True)
 
-# Security
 KUSTOS_PASSWORD = "kustosgeslo" 
 
 # =====================================================================
-# HTML TEMPLATES
+# BACKGROUND TASK RUNNER
+# =====================================================================
+def run_synthesis_pipeline(group_name):
+    """Runs the fuser and sonifier sequentially in the background."""
+    print(f"Starting background synthesis for {group_name}...")
+    subprocess.run([sys.executable, 'fuse_images.py', group_name])
+    #subprocess.run([sys.executable, 'generate_audio.py', group_name])
+    print(f"Pipeline complete for {group_name}.")
+
+# =====================================================================
+# HTML TEMPLATES (Updated with /media/ endpoint usage)
 # =====================================================================
 
 BASE_HTML = """
@@ -70,15 +77,14 @@ GALLERY_HTML = "{% extends 'base' %}{% block content %}" + """
     <div class="card">
         <h3><a href="{{ url_for('view_group', group_name=group.name) }}">{{ group.name }}</a></h3>
         {% if group.fused_photo %}
-            <img src="{{ url_for('static', filename='visitor_groups/' + group.name + '/outputs/fused.jpg') }}" alt="Fused Photo">
+            <img src="{{ url_for('serve_media', filename=group.name + '/outputs/fused.jpg') }}" alt="Fused Photo">
         {% else %}
-            <div style="height: 150px; background: #eee; display: flex; align-items: center; justify-content: center; margin-bottom: 10px; border-radius: 4px;">No synthesis yet</div>
+            <div style="height: 150px; background: #eee; display: flex; align-items: center; justify-content: center; margin-bottom: 10px; border-radius: 4px;">Processing / No synthesis yet</div>
         {% endif %}
         
         {% if group.audio %}
             <audio controls style="width: 100%;">
-                <source src="{{ url_for('static', filename='visitor_groups/' + group.name + '/outputs/sound.wav') }}" type="audio/wav">
-                Your browser does not support the audio element.
+                <source src="{{ url_for('serve_media', filename=group.name + '/outputs/sound.wav') }}" type="audio/wav">
             </audio>
         {% endif %}
     </div>
@@ -102,10 +108,10 @@ GROUP_HTML = "{% extends 'base' %}{% block content %}" + """
 {% if has_outputs %}
     <div style="text-align: center; margin-bottom: 40px; padding: 20px; background: #2c3e50; border-radius: 8px;">
         <h2 style="color: white;">Synthesis Results</h2>
-        <img src="{{ url_for('static', filename='visitor_groups/' + group_name + '/outputs/fused.jpg') }}" style="max-width: 100%; border-radius: 4px; box-shadow: 0 4px 15px rgba(0,0,0,0.3);">
+        <img src="{{ url_for('serve_media', filename=group_name + '/outputs/fused.jpg') }}" style="max-width: 100%; border-radius: 4px; box-shadow: 0 4px 15px rgba(0,0,0,0.3);">
         <br><br>
         <audio controls style="width: 80%;">
-            <source src="{{ url_for('static', filename='visitor_groups/' + group_name + '/outputs/sound.wav') }}" type="audio/wav">
+            <source src="{{ url_for('serve_media', filename=group_name + '/outputs/sound.wav') }}" type="audio/wav">
         </audio>
     </div>
 {% endif %}
@@ -119,7 +125,7 @@ GROUP_HTML = "{% extends 'base' %}{% block content %}" + """
         </form>
         <div class="card-grid" style="grid-template-columns: repeat(3, 1fr);">
             {% for p in portraits %}
-                <img src="{{ url_for('static', filename='visitor_groups/' + group_name + '/portraits/' + p) }}" style="width: 100%; border-radius: 4px;">
+                <img src="{{ url_for('serve_media', filename=group_name + '/portraits/' + p) }}" style="width: 100%; border-radius: 4px;">
             {% endfor %}
         </div>
     </div>
@@ -133,7 +139,7 @@ GROUP_HTML = "{% extends 'base' %}{% block content %}" + """
         
         <div class="card-grid" style="grid-template-columns: repeat(3, 1fr); margin-top: 20px;">
             {% for s in signatures %}
-                <img src="{{ url_for('static', filename='visitor_groups/' + group_name + '/signatures/' + s) }}" style="width: 100%; border: 1px solid #ddd; background: white;">
+                <img src="{{ url_for('serve_media', filename=group_name + '/signatures/' + s) }}" style="width: 100%; border: 1px solid #ddd; background: white;">
             {% endfor %}
         </div>
     </div>
@@ -143,27 +149,24 @@ GROUP_HTML = "{% extends 'base' %}{% block content %}" + """
 
 <div class="auth-box" style="text-align: center;">
     <h2>3. Finalize & Synthesize</h2>
-    <p>This process will fuse the portraits, apply the signatures as a modulation mask, and generate the generative `.wav` and `.npy` files.</p>
+    <p>This will fuse the portraits and generate audio in the background.</p>
     <form action="{{ url_for('synthesize', group_name=group_name) }}" method="POST">
         <input type="password" name="password" placeholder="Kustos Password required to Synthesize" style="max-width: 300px;" required>
         <br>
-        <button type="submit" class="btn btn-danger" style="font-size: 1.2em; padding: 15px 30px;">SYNTHESIZE</button>
+        <button type="submit" class="btn btn-danger" style="font-size: 1.2em; padding: 15px 30px;">START SYNTHESIS</button>
     </form>
 </div>
 """ + "{% endblock %}" + """
 {% block scripts %}
 <script>
-    // Canvas Logic for Signatures
     const canvas = document.getElementById('sigCanvas');
     if(canvas) {
         const ctx = canvas.getContext('2d');
         let isDrawing = false;
         
-        // Resize canvas to physical dimensions
         canvas.width = canvas.offsetWidth;
         canvas.height = canvas.offsetHeight;
         
-        // Start with a clean transparent background
         ctx.lineJoin = 'round';
         ctx.lineCap = 'round';
         ctx.lineWidth = 3;
@@ -217,6 +220,11 @@ GROUP_HTML = "{% extends 'base' %}{% block content %}" + """
 # ROUTING & LOGIC
 # =====================================================================
 
+@app.route('/media/<path:filename>')
+def serve_media(filename):
+    """Endpoint for serving raw assets directly from the groups directory."""
+    return send_from_directory(GROUPS_DIR, filename)
+
 def get_group_data(group_name):
     base_path = os.path.join(GROUPS_DIR, group_name)
     return {
@@ -237,13 +245,6 @@ def gallery():
             if os.path.isdir(os.path.join(GROUPS_DIR, d)):
                 groups.append(get_group_data(d))
     
-    return render_template_string(
-        "{% extends 'base' %}{% block content %}...{% endblock %}", 
-        groups=groups, 
-        _template=GALLERY_HTML, base=BASE_HTML
-    ).replace('{% extends \'base\' %}', '{% extends base_template %}').replace('base_template', '"{}"'.format('base')) # Quick engine trick
-    
-    # Proper rendering setup
     env = app.jinja_env
     env.globals['base'] = env.from_string(BASE_HTML)
     return render_template_string(GALLERY_HTML, groups=groups)
@@ -301,7 +302,6 @@ def upload_portraits(group_name):
 def upload_signature(group_name):
     data = request.json.get('image')
     if data:
-        # Strip header from base64 string
         header, encoded = data.split(",", 1)
         decoded = base64.b64decode(encoded)
         sig_count = len(os.listdir(os.path.join(GROUPS_DIR, group_name, 'signatures')))
@@ -320,100 +320,17 @@ def synthesize(group_name):
 
     group_path = os.path.join(GROUPS_DIR, group_name)
     portrait_dir = os.path.join(group_path, 'portraits')
-    sig_dir = os.path.join(group_path, 'signatures')
-    out_dir = os.path.join(group_path, 'outputs')
-    
-    portrait_files = glob.glob(os.path.join(portrait_dir, '*'))
-    sig_files = glob.glob(os.path.join(sig_dir, '*'))
+    portrait_files = os.listdir(portrait_dir)
     
     if not portrait_files:
         flash("Cannot synthesize: No portraits found.")
         return redirect(url_for('view_group', group_name=group_name))
 
-    # --- 1. PORTRAIT FUSION ---
-    # Find smallest resolution (MP)
-    min_pixels = float('inf')
-    target_size = None
-    
-    for p in portrait_files:
-        try:
-            with Image.open(p) as img:
-                pixels = img.width * img.height
-                if pixels < min_pixels:
-                    min_pixels = pixels
-                    target_size = (img.width, img.height)
-        except Exception:
-            pass # Ignore non-image files
+    # Spin up the background thread so the UI responds instantly
+    threading.Thread(target=run_synthesis_pipeline, args=(group_name,), daemon=True).start()
 
-    # Average the arrays
-    fused_array = np.zeros((target_size[1], target_size[0], 3), dtype=np.float32)
-    valid_count = 0
-    for p in portrait_files:
-        try:
-            with Image.open(p) as img:
-                resized = img.resize(target_size, Image.Resampling.LANCZOS).convert('RGB')
-                fused_array += np.array(resized, dtype=np.float32)
-                valid_count += 1
-        except Exception:
-            pass
-            
-    if valid_count > 0:
-        fused_array /= valid_count
-        
-    fused_img = Image.fromarray(np.uint8(fused_array))
-    fused_img.save(os.path.join(out_dir, 'fused.jpg'), quality=90)
-
-    # --- 2. SIGNATURE OVERLAY & MASKING ---
-    mask = np.zeros((target_size[1], target_size[0]), dtype=np.float32)
-    
-    for s in sig_files:
-        try:
-            with Image.open(s) as img:
-                # Canvas exports as PNG with transparent background. 
-                # We resize, ensure RGBA, and use the Alpha channel as the mask.
-                resized = img.resize(target_size, Image.Resampling.LANCZOS).convert('RGBA')
-                alpha = np.array(resized)[:, :, 3].astype(np.float32) / 255.0
-                mask = np.maximum(mask, alpha) # Additive overlay
-        except Exception:
-            pass
-
-    # --- 3. SONIFICATION ---
-    # Convert fused photo to grayscale to map intensity to audio amplitude
-    gray_fused = fused_img.convert('L')
-    gray_array = np.array(gray_fused, dtype=np.float32)
-
-    # Apply the combined signature mask filter
-    # If no signatures exist, the mask is all zeros. We'll default to 1.0 (pass all) if empty.
-    if not sig_files:
-        mask = np.ones_like(gray_array)
-        
-    filtered_array = gray_array * mask
-
-    # Flatten the filtered 2D array into a 1D audio sequence
-    audio_1d = filtered_array.flatten()
-
-    # Center the waveform (remove DC offset) and normalize to -1.0 to 1.0
-    if len(audio_1d) > 0:
-        audio_1d = audio_1d - np.mean(audio_1d)
-        max_val = np.max(np.abs(audio_1d))
-        if max_val > 0:
-            audio_norm = audio_1d / max_val
-        else:
-            audio_norm = audio_1d
-    else:
-        audio_norm = np.zeros(44100) # 1 sec silence fallback
-
-    # Save live modulation Numpy array
-    np.save(os.path.join(out_dir, 'sound.npy'), audio_norm)
-
-    # Convert to 16-bit PCM for WAV playback
-    audio_pcm = np.int16(audio_norm * 32767)
-    sample_rate = 44100  # Standard CD-quality sample rate
-    wavfile.write(os.path.join(out_dir, 'sound.wav'), sample_rate, audio_pcm)
-
-    flash("Synthesis complete! Fused portrait and audio generated.")
+    flash("Synthesis started in the background! Refresh the page in a few moments to see results.")
     return redirect(url_for('view_group', group_name=group_name))
 
 if __name__ == '__main__':
-    # Run the local server
     app.run(debug=True, host='0.0.0.0', port=5000)
