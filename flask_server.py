@@ -3,7 +3,8 @@ import sys
 import base64
 import subprocess
 import threading
-from flask import Flask, request, redirect, url_for, render_template_string, flash, send_from_directory
+import re
+from flask import Flask, request, redirect, url_for, flash, send_from_directory, get_flashed_messages
 
 app = Flask(__name__)
 app.secret_key = 'kustos_session_key_2026'
@@ -21,11 +22,11 @@ def run_synthesis_pipeline(group_name):
     """Runs the fuser and sonifier sequentially in the background."""
     print(f"Starting background synthesis for {group_name}...")
     subprocess.run([sys.executable, 'fuse_images.py', group_name])
-    #subprocess.run([sys.executable, 'generate_audio.py', group_name])
+    subprocess.run([sys.executable, 'generate_audio.py', group_name])
     print(f"Pipeline complete for {group_name}.")
 
 # =====================================================================
-# HTML TEMPLATES (Updated with /media/ endpoint usage)
+# HTML RENDERERS (No Jinja)
 # =====================================================================
 
 BASE_HTML = """
@@ -54,166 +55,170 @@ BASE_HTML = """
 </head>
 <body>
     <div class="container">
-        {% with messages = get_flashed_messages() %}
-          {% if messages %}
-            {% for message in messages %}
-              <div class="flash">{{ message }}</div>
-            {% endfor %}
-          {% endif %}
-        {% endwith %}
-        {% block content %}{% endblock %}
-    </div>
-    {% block scripts %}{% endblock %}
-</body>
+        </div>
+    </body>
 </html>
 """
 
-GALLERY_HTML = "{% extends 'base' %}{% block content %}" + """
-<h1>Visitor Groups Gallery</h1>
-<p>Archive of fused portraits and generative soundscapes.</p>
+def render_page(content, scripts="", messages=[]):
+    """Injects content into the base template string."""
+    msgs_html = "".join([f'<div class="flash">{m}</div>' for m in messages])
+    page = BASE_HTML.replace("", msgs_html)
+    page = page.replace("", content)
+    page = page.replace("", scripts)
+    return page
 
-<div class="card-grid">
-    {% for group in groups %}
-    <div class="card">
-        <h3><a href="{{ url_for('view_group', group_name=group.name) }}">{{ group.name }}</a></h3>
-        {% if group.fused_photo %}
-            <img src="{{ url_for('serve_media', filename=group.name + '/outputs/fused.jpg') }}" alt="Fused Photo">
-        {% else %}
-            <div style="height: 150px; background: #eee; display: flex; align-items: center; justify-content: center; margin-bottom: 10px; border-radius: 4px;">Processing / No synthesis yet</div>
-        {% endif %}
+def render_gallery(groups, messages):
+    cards_html = ""
+    for g in groups:
+        name = g['name']
+        fused_html = f'<img src="/media/{name}/outputs/fused.jpg" alt="Fused Photo">' if g['fused_photo'] else '<div style="height: 150px; background: #eee; display: flex; align-items: center; justify-content: center; margin-bottom: 10px; border-radius: 4px;">Processing / No synthesis yet</div>'
+        audio_html = f'<audio controls style="width: 100%;"><source src="/media/{name}/outputs/sound.wav" type="audio/wav"></audio>' if g['audio'] else ''
         
-        {% if group.audio %}
-            <audio controls style="width: 100%;">
-                <source src="{{ url_for('serve_media', filename=group.name + '/outputs/sound.wav') }}" type="audio/wav">
-            </audio>
-        {% endif %}
+        cards_html += f"""
+        <div class="card">
+            <h3><a href="/group/{name}">{name}</a></h3>
+            {fused_html}
+            {audio_html}
+        </div>
+        """
+
+    content = f"""
+    <h1>Visitor Groups Gallery</h1>
+    <p>Archive of fused portraits and generative soundscapes.</p>
+    <div class="card-grid">
+        {cards_html}
     </div>
-    {% endfor %}
-</div>
-
-<div class="auth-box">
-    <h3>Kustos Controls: Create New Visitor Group</h3>
-    <form action="{{ url_for('create_group') }}" method="POST">
-        <input type="text" name="group_name" placeholder="Enter new group name (e.g., 'May_14_Exhibition')" required>
-        <input type="password" name="password" placeholder="Kustos Password" required>
-        <button type="submit" class="btn">Create Blank Group</button>
-    </form>
-</div>
-""" + "{% endblock %}"
-
-GROUP_HTML = "{% extends 'base' %}{% block content %}" + """
-<a href="{{ url_for('gallery') }}" class="btn" style="margin-bottom: 20px;">&larr; Back to Gallery</a>
-<h1>Group: {{ group_name }}</h1>
-
-{% if has_outputs %}
-    <div style="text-align: center; margin-bottom: 40px; padding: 20px; background: #2c3e50; border-radius: 8px;">
-        <h2 style="color: white;">Synthesis Results</h2>
-        <img src="{{ url_for('serve_media', filename=group_name + '/outputs/fused.jpg') }}" style="max-width: 100%; border-radius: 4px; box-shadow: 0 4px 15px rgba(0,0,0,0.3);">
-        <br><br>
-        <audio controls style="width: 80%;">
-            <source src="{{ url_for('serve_media', filename=group_name + '/outputs/sound.wav') }}" type="audio/wav">
-        </audio>
-    </div>
-{% endif %}
-
-<div style="display: flex; gap: 20px; flex-wrap: wrap;">
-    <div style="flex: 1; min-width: 300px;">
-        <h2>1. Portraits</h2>
-        <form action="{{ url_for('upload_portraits', group_name=group_name) }}" method="POST" enctype="multipart/form-data">
-            <input type="file" name="portraits" multiple accept="image/*" required>
-            <button type="submit" class="btn">Upload Portraits</button>
+    <div class="auth-box">
+        <h3>Kustos Controls: Create New Visitor Group</h3>
+        <form action="/gallery" method="POST">
+            <input type="text" name="group_name" placeholder="Enter new group name (e.g., 'May_14_Exhibition')" required>
+            <input type="password" name="password" placeholder="Kustos Password" required>
+            <button type="submit" class="btn">Create Blank Group</button>
         </form>
-        <div class="card-grid" style="grid-template-columns: repeat(3, 1fr);">
-            {% for p in portraits %}
-                <img src="{{ url_for('serve_media', filename=group_name + '/portraits/' + p) }}" style="width: 100%; border-radius: 4px;">
-            {% endfor %}
-        </div>
     </div>
+    """
+    return render_page(content, messages=messages)
 
-    <div style="flex: 1; min-width: 300px;">
-        <h2>2. Signatures</h2>
-        <canvas id="sigCanvas"></canvas>
-        <br><br>
-        <button id="saveSigBtn" class="btn">Save Signature</button>
-        <button id="clearSigBtn" class="btn" style="background: #95a5a6;">Clear Canvas</button>
-        
-        <div class="card-grid" style="grid-template-columns: repeat(3, 1fr); margin-top: 20px;">
-            {% for s in signatures %}
-                <img src="{{ url_for('serve_media', filename=group_name + '/signatures/' + s) }}" style="width: 100%; border: 1px solid #ddd; background: white;">
-            {% endfor %}
+def render_group(group_name, portraits, signatures, has_outputs, messages):
+    outputs_html = ""
+    if has_outputs:
+        outputs_html = f"""
+        <div style="text-align: center; margin-bottom: 40px; padding: 20px; background: #2c3e50; border-radius: 8px;">
+            <h2 style="color: white;">Synthesis Results</h2>
+            <img src="/media/{group_name}/outputs/fused.jpg" style="max-width: 100%; border-radius: 4px; box-shadow: 0 4px 15px rgba(0,0,0,0.3);">
+            <br><br>
+            <audio controls style="width: 80%;">
+                <source src="/media/{group_name}/outputs/sound.wav" type="audio/wav">
+            </audio>
         </div>
-    </div>
-</div>
+        """
 
-<hr style="margin: 40px 0;">
+    portraits_html = "".join([f'<img src="/media/{group_name}/portraits/{p}" style="width: 100%; border-radius: 4px;">' for p in portraits])
+    signatures_html = "".join([f'<img src="/media/{group_name}/signatures/{s}" style="width: 100%; border: 1px solid #ddd; background: white;">' for s in signatures])
 
-<div class="auth-box" style="text-align: center;">
-    <h2>3. Finalize & Synthesize</h2>
-    <p>This will fuse the portraits and generate audio in the background.</p>
-    <form action="{{ url_for('synthesize', group_name=group_name) }}" method="POST">
-        <input type="password" name="password" placeholder="Kustos Password required to Synthesize" style="max-width: 300px;" required>
-        <br>
-        <button type="submit" class="btn btn-danger" style="font-size: 1.2em; padding: 15px 30px;">START SYNTHESIS</button>
-    </form>
-</div>
-""" + "{% endblock %}" + """
-{% block scripts %}
-<script>
-    const canvas = document.getElementById('sigCanvas');
-    if(canvas) {
-        const ctx = canvas.getContext('2d');
-        let isDrawing = false;
-        
-        canvas.width = canvas.offsetWidth;
-        canvas.height = canvas.offsetHeight;
-        
-        ctx.lineJoin = 'round';
-        ctx.lineCap = 'round';
-        ctx.lineWidth = 3;
-        ctx.strokeStyle = 'black';
+    content = f"""
+    <a href="/gallery" class="btn" style="margin-bottom: 20px;">&larr; Back to Gallery</a>
+    <h1>Group: {group_name}</h1>
+    
+    {outputs_html}
 
-        const startDraw = (e) => { isDrawing = true; draw(e); };
-        const endDraw = () => { isDrawing = false; ctx.beginPath(); };
-        const draw = (e) => {
-            if (!isDrawing) return;
-            e.preventDefault();
-            const rect = canvas.getBoundingClientRect();
-            const x = (e.clientX || e.touches[0].clientX) - rect.left;
-            const y = (e.clientY || e.touches[0].clientY) - rect.top;
+    <div style="display: flex; gap: 20px; flex-wrap: wrap;">
+        <div style="flex: 1; min-width: 300px;">
+            <h2>1. Portraits</h2>
+            <form action="/group/{group_name}/upload_portraits" method="POST" enctype="multipart/form-data">
+                <input type="file" name="portraits" multiple accept="image/*" required>
+                <button type="submit" class="btn">Upload Portraits</button>
+            </form>
+            <div class="card-grid" style="grid-template-columns: repeat(3, 1fr);">
+                {portraits_html}
+            </div>
+        </div>
+
+        <div style="flex: 1; min-width: 300px;">
+            <h2>2. Signatures</h2>
+            <canvas id="sigCanvas"></canvas>
+            <br><br>
+            <button id="saveSigBtn" class="btn">Save Signature</button>
+            <button id="clearSigBtn" class="btn" style="background: #95a5a6;">Clear Canvas</button>
             
-            ctx.lineTo(x, y);
-            ctx.stroke();
-            ctx.beginPath();
-            ctx.moveTo(x, y);
-        };
+            <div class="card-grid" style="grid-template-columns: repeat(3, 1fr); margin-top: 20px;">
+                {signatures_html}
+            </div>
+        </div>
+    </div>
 
-        canvas.addEventListener('mousedown', startDraw);
-        canvas.addEventListener('mousemove', draw);
-        canvas.addEventListener('mouseup', endDraw);
-        canvas.addEventListener('mouseout', endDraw);
-        
-        canvas.addEventListener('touchstart', startDraw, {passive: false});
-        canvas.addEventListener('touchmove', draw, {passive: false});
-        canvas.addEventListener('touchend', endDraw);
+    <hr style="margin: 40px 0;">
 
-        document.getElementById('clearSigBtn').addEventListener('click', () => {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-        });
+    <div class="auth-box" style="text-align: center;">
+        <h2>3. Finalize & Synthesize</h2>
+        <p>This will fuse the portraits and generate audio in the background.</p>
+        <form action="/group/{group_name}/synthesize" method="POST">
+            <input type="password" name="password" placeholder="Kustos Password required to Synthesize" style="max-width: 300px;" required>
+            <br>
+            <button type="submit" class="btn btn-danger" style="font-size: 1.2em; padding: 15px 30px;">START SYNTHESIS</button>
+        </form>
+    </div>
+    """
 
-        document.getElementById('saveSigBtn').addEventListener('click', () => {
-            const dataURL = canvas.toDataURL('image/png');
-            fetch("{{ url_for('upload_signature', group_name=group_name) }}", {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ image: dataURL })
-            }).then(response => {
-                if(response.ok) window.location.reload();
+    scripts = """
+    <script>
+        const canvas = document.getElementById('sigCanvas');
+        if(canvas) {
+            const ctx = canvas.getContext('2d');
+            let isDrawing = false;
+            
+            canvas.width = canvas.offsetWidth;
+            canvas.height = canvas.offsetHeight;
+            
+            ctx.lineJoin = 'round';
+            ctx.lineCap = 'round';
+            ctx.lineWidth = 3;
+            ctx.strokeStyle = 'black';
+
+            const startDraw = (e) => { isDrawing = true; draw(e); };
+            const endDraw = () => { isDrawing = false; ctx.beginPath(); };
+            const draw = (e) => {
+                if (!isDrawing) return;
+                e.preventDefault();
+                const rect = canvas.getBoundingClientRect();
+                const x = (e.clientX || e.touches[0].clientX) - rect.left;
+                const y = (e.clientY || e.touches[0].clientY) - rect.top;
+                
+                ctx.lineTo(x, y);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(x, y);
+            };
+
+            canvas.addEventListener('mousedown', startDraw);
+            canvas.addEventListener('mousemove', draw);
+            canvas.addEventListener('mouseup', endDraw);
+            canvas.addEventListener('mouseout', endDraw);
+            
+            canvas.addEventListener('touchstart', startDraw, {passive: false});
+            canvas.addEventListener('touchmove', draw, {passive: false});
+            canvas.addEventListener('touchend', endDraw);
+
+            document.getElementById('clearSigBtn').addEventListener('click', () => {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
             });
-        });
-    }
-</script>
-{% endblock %}
-"""
+
+            document.getElementById('saveSigBtn').addEventListener('click', () => {
+                const dataURL = canvas.toDataURL('image/png');
+                fetch("/group/__GROUP_NAME__/upload_signature", {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ image: dataURL })
+                }).then(response => {
+                    if(response.ok) window.location.reload();
+                });
+            });
+        }
+    </script>
+    """.replace('__GROUP_NAME__', group_name)
+
+    return render_page(content, scripts, messages)
 
 
 # =====================================================================
@@ -244,10 +249,8 @@ def gallery():
         for d in os.listdir(GROUPS_DIR):
             if os.path.isdir(os.path.join(GROUPS_DIR, d)):
                 groups.append(get_group_data(d))
-    
-    env = app.jinja_env
-    env.globals['base'] = env.from_string(BASE_HTML)
-    return render_template_string(GALLERY_HTML, groups=groups)
+                
+    return render_gallery(groups, messages=get_flashed_messages())
 
 @app.route('/gallery', methods=['POST'])
 def create_group():
@@ -255,7 +258,6 @@ def create_group():
         flash("Unauthorized: Incorrect password.")
         return redirect(url_for('gallery'))
         
-    import re
     raw_name = request.form.get('group_name', 'Unnamed_Group')
     safe_name = re.sub(r'[^a-zA-Z0-9_\-]', '_', raw_name)
     
@@ -272,9 +274,6 @@ def create_group():
 
 @app.route('/group/<group_name>')
 def view_group(group_name):
-    env = app.jinja_env
-    env.globals['base'] = env.from_string(BASE_HTML)
-    
     group_path = os.path.join(GROUPS_DIR, group_name)
     if not os.path.exists(group_path):
         return "Group not found", 404
@@ -283,11 +282,13 @@ def view_group(group_name):
     signatures = os.listdir(os.path.join(group_path, 'signatures'))
     has_outputs = os.path.exists(os.path.join(group_path, 'outputs', 'fused.jpg'))
     
-    return render_template_string(GROUP_HTML, 
-                                  group_name=group_name, 
-                                  portraits=portraits, 
-                                  signatures=signatures,
-                                  has_outputs=has_outputs)
+    return render_group(
+        group_name=group_name, 
+        portraits=portraits, 
+        signatures=signatures,
+        has_outputs=has_outputs,
+        messages=get_flashed_messages()
+    )
 
 @app.route('/group/<group_name>/upload_portraits', methods=['POST'])
 def upload_portraits(group_name):
@@ -326,7 +327,6 @@ def synthesize(group_name):
         flash("Cannot synthesize: No portraits found.")
         return redirect(url_for('view_group', group_name=group_name))
 
-    # Spin up the background thread so the UI responds instantly
     threading.Thread(target=run_synthesis_pipeline, args=(group_name,), daemon=True).start()
 
     flash("Synthesis started in the background! Refresh the page in a few moments to see results.")
