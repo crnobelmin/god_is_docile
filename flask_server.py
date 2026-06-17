@@ -1,260 +1,42 @@
-import os
-import sys
-import base64
-import subprocess
-import threading
-import re
-from flask import Flask, request, redirect, url_for, flash, send_from_directory, get_flashed_messages
+import numpy as np
+import sys, os, io, glob, base64, time, re
+from flask import Flask, request, redirect, flash, send_from_directory, url_for, render_template
+from PIL import Image, ImageEnhance, ImageFilter
 
+# Create a flask app
 app = Flask(__name__)
 app.secret_key = 'kustos_session_key_2026'
 
+# Set the directory where this script is running as the base dir
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-GROUPS_DIR = os.path.join(BASE_DIR, 'static', 'visitor_groups')
-os.makedirs(GROUPS_DIR, exist_ok=True)
+GROUPS_DIR = os.path.join(BASE_DIR, 'visitor_groups')
 
-KUSTOS_PASSWORD = "kustosgeslo" 
+# Set a password to only give the kustos admin rights
+KUSTOS_PASS = 'kustosisdocile'
 
-# =====================================================================
-# BACKGROUND TASK RUNNER
-# =====================================================================
-def run_synthesis_pipeline(group_name):
-    """Runs the fuser and sonifier sequentially in the background."""
-    print(f"Starting background synthesis for {group_name}...")
-    subprocess.run([sys.executable, 'fuse_images.py', group_name])
-    subprocess.run([sys.executable, 'generate_audio.py', group_name])
-    print(f"Pipeline complete for {group_name}.")
-
-# =====================================================================
-# HTML RENDERERS (No Jinja)
-# =====================================================================
-
-BASE_HTML = """
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Visitor Sonification Gallery</title>
-    <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 20px; background: #f4f4f9; color: #333; }
-        .container { max-width: 900px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-        h1, h2, h3 { color: #2c3e50; }
-        .btn { padding: 10px 15px; background: #3498db; color: white; border: none; border-radius: 4px; cursor: pointer; text-decoration: none; display: inline-block; }
-        .btn:hover { background: #2980b9; }
-        .btn-danger { background: #e74c3c; }
-        .btn-danger:hover { background: #c0392b; }
-        .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 20px; margin-top: 20px; }
-        .card { border: 1px solid #ddd; border-radius: 8px; padding: 15px; text-align: center; background: #fafafa; }
-        .card img { max-width: 100%; border-radius: 4px; margin-bottom: 10px; }
-        .flash { padding: 10px; margin-bottom: 20px; border-radius: 4px; background: #ffeaa7; color: #d63031; border: 1px solid #fdcb6e; }
-        input[type="text"], input[type="password"] { padding: 10px; border: 1px solid #ccc; border-radius: 4px; width: calc(100% - 22px); margin-bottom: 10px;}
-        .auth-box { background: #ecf0f1; padding: 15px; border-radius: 8px; margin-top: 30px; border-left: 5px solid #34495e; }
-        canvas { border: 2px dashed #bdc3c7; background: #fff; cursor: crosshair; touch-action: none; width: 100%; height: 200px; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        </div>
-    </body>
-</html>
-"""
-
-def render_page(content, scripts="", messages=[]):
-    """Injects content into the base template string."""
-    msgs_html = "".join([f'<div class="flash">{m}</div>' for m in messages])
-    page = BASE_HTML.replace("", msgs_html)
-    page = page.replace("", content)
-    page = page.replace("", scripts)
-    return page
-
-def render_gallery(groups, messages):
-    cards_html = ""
-    for g in groups:
-        name = g['name']
-        fused_html = f'<img src="/media/{name}/outputs/fused.jpg" alt="Fused Photo">' if g['fused_photo'] else '<div style="height: 150px; background: #eee; display: flex; align-items: center; justify-content: center; margin-bottom: 10px; border-radius: 4px;">Processing / No synthesis yet</div>'
-        audio_html = f'<audio controls style="width: 100%;"><source src="/media/{name}/outputs/sound.wav" type="audio/wav"></audio>' if g['audio'] else ''
-        
-        cards_html += f"""
-        <div class="card">
-            <h3><a href="/group/{name}">{name}</a></h3>
-            {fused_html}
-            {audio_html}
-        </div>
-        """
-
-    content = f"""
-    <h1>Visitor Groups Gallery</h1>
-    <p>Archive of fused portraits and generative soundscapes.</p>
-    <div class="card-grid">
-        {cards_html}
-    </div>
-    <div class="auth-box">
-        <h3>Kustos Controls: Create New Visitor Group</h3>
-        <form action="/gallery" method="POST">
-            <input type="text" name="group_name" placeholder="Enter new group name (e.g., 'May_14_Exhibition')" required>
-            <input type="password" name="password" placeholder="Kustos Password" required>
-            <button type="submit" class="btn">Create Blank Group</button>
-        </form>
-    </div>
-    """
-    return render_page(content, messages=messages)
-
-def render_group(group_name, portraits, signatures, has_outputs, messages):
-    outputs_html = ""
-    if has_outputs:
-        outputs_html = f"""
-        <div style="text-align: center; margin-bottom: 40px; padding: 20px; background: #2c3e50; border-radius: 8px;">
-            <h2 style="color: white;">Synthesis Results</h2>
-            <img src="/media/{group_name}/outputs/fused.jpg" style="max-width: 100%; border-radius: 4px; box-shadow: 0 4px 15px rgba(0,0,0,0.3);">
-            <br><br>
-            <audio controls style="width: 80%;">
-                <source src="/media/{group_name}/outputs/sound.wav" type="audio/wav">
-            </audio>
-        </div>
-        """
-
-    portraits_html = "".join([f'<img src="/media/{group_name}/portraits/{p}" style="width: 100%; border-radius: 4px;">' for p in portraits])
-    signatures_html = "".join([f'<img src="/media/{group_name}/signatures/{s}" style="width: 100%; border: 1px solid #ddd; background: white;">' for s in signatures])
-
-    content = f"""
-    <a href="/gallery" class="btn" style="margin-bottom: 20px;">&larr; Back to Gallery</a>
-    <h1>Group: {group_name}</h1>
-    
-    {outputs_html}
-
-    <div style="display: flex; gap: 20px; flex-wrap: wrap;">
-        <div style="flex: 1; min-width: 300px;">
-            <h2>1. Portraits</h2>
-            <form action="/group/{group_name}/upload_portraits" method="POST" enctype="multipart/form-data">
-                <input type="file" name="portraits" multiple accept="image/*" required>
-                <button type="submit" class="btn">Upload Portraits</button>
-            </form>
-            <div class="card-grid" style="grid-template-columns: repeat(3, 1fr);">
-                {portraits_html}
-            </div>
-        </div>
-
-        <div style="flex: 1; min-width: 300px;">
-            <h2>2. Signatures</h2>
-            <canvas id="sigCanvas"></canvas>
-            <br><br>
-            <button id="saveSigBtn" class="btn">Save Signature</button>
-            <button id="clearSigBtn" class="btn" style="background: #95a5a6;">Clear Canvas</button>
-            
-            <div class="card-grid" style="grid-template-columns: repeat(3, 1fr); margin-top: 20px;">
-                {signatures_html}
-            </div>
-        </div>
-    </div>
-
-    <hr style="margin: 40px 0;">
-
-    <div class="auth-box" style="text-align: center;">
-        <h2>3. Finalize & Synthesize</h2>
-        <p>This will fuse the portraits and generate audio in the background.</p>
-        <form action="/group/{group_name}/synthesize" method="POST">
-            <input type="password" name="password" placeholder="Kustos Password required to Synthesize" style="max-width: 300px;" required>
-            <br>
-            <button type="submit" class="btn btn-danger" style="font-size: 1.2em; padding: 15px 30px;">START SYNTHESIS</button>
-        </form>
-    </div>
-    """
-
-    scripts = """
-    <script>
-        const canvas = document.getElementById('sigCanvas');
-        if(canvas) {
-            const ctx = canvas.getContext('2d');
-            let isDrawing = false;
-            
-            canvas.width = canvas.offsetWidth;
-            canvas.height = canvas.offsetHeight;
-            
-            ctx.lineJoin = 'round';
-            ctx.lineCap = 'round';
-            ctx.lineWidth = 3;
-            ctx.strokeStyle = 'black';
-
-            const startDraw = (e) => { isDrawing = true; draw(e); };
-            const endDraw = () => { isDrawing = false; ctx.beginPath(); };
-            const draw = (e) => {
-                if (!isDrawing) return;
-                e.preventDefault();
-                const rect = canvas.getBoundingClientRect();
-                const x = (e.clientX || e.touches[0].clientX) - rect.left;
-                const y = (e.clientY || e.touches[0].clientY) - rect.top;
-                
-                ctx.lineTo(x, y);
-                ctx.stroke();
-                ctx.beginPath();
-                ctx.moveTo(x, y);
-            };
-
-            canvas.addEventListener('mousedown', startDraw);
-            canvas.addEventListener('mousemove', draw);
-            canvas.addEventListener('mouseup', endDraw);
-            canvas.addEventListener('mouseout', endDraw);
-            
-            canvas.addEventListener('touchstart', startDraw, {passive: false});
-            canvas.addEventListener('touchmove', draw, {passive: false});
-            canvas.addEventListener('touchend', endDraw);
-
-            document.getElementById('clearSigBtn').addEventListener('click', () => {
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-            });
-
-            document.getElementById('saveSigBtn').addEventListener('click', () => {
-                const dataURL = canvas.toDataURL('image/png');
-                fetch("/group/__GROUP_NAME__/upload_signature", {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ image: dataURL })
-                }).then(response => {
-                    if(response.ok) window.location.reload();
-                });
-            });
-        }
-    </script>
-    """.replace('__GROUP_NAME__', group_name)
-
-    return render_page(content, scripts, messages)
-
-
-# =====================================================================
-# ROUTING & LOGIC
-# =====================================================================
-
-@app.route('/media/<path:filename>')
-def serve_media(filename):
-    """Endpoint for serving raw assets directly from the groups directory."""
-    return send_from_directory(GROUPS_DIR, filename)
-
-def get_group_data(group_name):
-    base_path = os.path.join(GROUPS_DIR, group_name)
-    return {
-        "name": group_name,
-        "fused_photo": os.path.exists(os.path.join(base_path, 'outputs', 'fused.jpg')),
-        "audio": os.path.exists(os.path.join(base_path, 'outputs', 'sound.wav'))
-    }
-
+# -------------------- HOME PAGE -------------------- #
 @app.route('/')
 def index():
-    return redirect(url_for('gallery'))
-
-@app.route('/gallery', methods=['GET'])
+    return redirect(url_for('manifesto'))
+    
+@app.route('/manifesto')
+def manifesto():
+    return render_template('manifesto.html')
+    
+# -------------------- GALLERY -------------------- #
+@app.route('/gallery')
 def gallery():
-    groups = []
-    if os.path.exists(GROUPS_DIR):
-        for d in os.listdir(GROUPS_DIR):
-            if os.path.isdir(os.path.join(GROUPS_DIR, d)):
-                groups.append(get_group_data(d))
-                
-    return render_gallery(groups, messages=get_flashed_messages())
-
-@app.route('/gallery', methods=['POST'])
+    # Pass the list of group names directly to Jinja2
+    groups = [d for d in os.listdir(GROUPS_DIR) if os.path.isdir(os.path.join(GROUPS_DIR, d))]
+    return render_template('gallery.html', groups=groups)
+    
+@app.route('/gallery/add_visitor')
+def add_visitor():
+    return render_template('add_visitor.html')
+    
+@app.route('/gallery/create_group', methods=['POST'])
 def create_group():
-    if request.form.get('password') != KUSTOS_PASSWORD:
+    if request.form.get('password') != KUSTOS_PASS:
         flash("Unauthorized: Incorrect password.")
         return redirect(url_for('gallery'))
         
@@ -266,71 +48,257 @@ def create_group():
         os.makedirs(os.path.join(group_path, 'portraits'))
         os.makedirs(os.path.join(group_path, 'signatures'))
         os.makedirs(os.path.join(group_path, 'outputs'))
+        os.makedirs(os.path.join(group_path, 'fused'))
         flash(f"Visitor group '{safe_name}' created.")
     else:
         flash("Group already exists.")
         
-    return redirect(url_for('gallery'))
-
-@app.route('/group/<group_name>')
-def view_group(group_name):
-    group_path = os.path.join(GROUPS_DIR, group_name)
-    if not os.path.exists(group_path):
-        return "Group not found", 404
-        
-    portraits = os.listdir(os.path.join(group_path, 'portraits'))
-    signatures = os.listdir(os.path.join(group_path, 'signatures'))
-    has_outputs = os.path.exists(os.path.join(group_path, 'outputs', 'fused.jpg'))
+    return redirect(url_for('group', group_name=safe_name))
     
-    return render_group(
+# -------------------- GROUP -------------------- #
+@app.route('/gallery/<group_name>')
+def group(group_name):
+    # Get all portrait files
+    target_dir_portraits = os.path.join(GROUPS_DIR, group_name, 'portraits')
+    portraits = [f for f in os.listdir(target_dir_portraits) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+        
+    # Get all signature files
+    target_dir_signatures = os.path.join(GROUPS_DIR, group_name, 'signatures')
+    signatures = [f for f in os.listdir(target_dir_signatures) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+    
+    num_sigs = len(signatures)
+        
+    # Pass lists directly to the template
+    return render_template(
+        'group.html', 
         group_name=group_name, 
         portraits=portraits, 
         signatures=signatures,
-        has_outputs=has_outputs,
-        messages=get_flashed_messages()
+        num_sigs=num_sigs
     )
-
-@app.route('/group/<group_name>/upload_portraits', methods=['POST'])
+    
+@app.route('/gallery/<group_name>/upload_portraits', methods=['POST'])
 def upload_portraits(group_name):
     files = request.files.getlist('portraits')
-    target_dir = os.path.join(GROUPS_DIR, group_name, 'portraits')
-    for f in files:
-        if f.filename != '':
-            f.save(os.path.join(target_dir, f.filename))
-    return redirect(url_for('view_group', group_name=group_name))
+    upload_dir = os.path.join(GROUPS_DIR, group_name, 'portraits')
+    os.makedirs(upload_dir, exist_ok=True)
+    
+    MAX_SIZE = (1000, 1000)
+    
+    # Get the current count to start numbering correctly
+    existing_files = [f for f in os.listdir(upload_dir) if f.startswith("portrait_")]
+    current_count = len(existing_files)
+    
+    for i, file in enumerate(files):
+        if file and file.filename != '':
+            # 1. Create numbered filename
+            filename = f"portrait_{current_count + i + 1}.jpg"
+            save_path = os.path.join(upload_dir, filename)
+            
+            # 2. Open, resize, and save
+            img = Image.open(file)
+            img.thumbnail(MAX_SIZE, Image.Resampling.LANCZOS)
+            img.convert('RGB').save(save_path, "JPEG", quality=85)
+            
+    return "Upload successful", 200
+    
+@app.route('/gallery/<group_name>/fuse_portraits', methods=['POST'])
+def run_fuse_portraits(group_name):
+    group_path = os.path.join(GROUPS_DIR, group_name)
+    portrait_dir = os.path.join(group_path, 'portraits')
+    fused_dir = os.path.join(group_path, 'fused')
+    
+    # Ensure the 'fused' directory exists
+    os.makedirs(fused_dir, exist_ok=True)
+    
+    portrait_files = glob.glob(os.path.join(portrait_dir, '*'))
+    if not portrait_files:
+        return "No portraits found", 404
 
-@app.route('/group/<group_name>/upload_signature', methods=['POST'])
+    # Find smallest resolution
+    min_pixels = float('inf')
+    target_size = None
+    for p in portrait_files:
+        try:
+            with Image.open(p) as img:
+                pixels = img.width * img.height
+                if pixels < min_pixels:
+                    min_pixels = pixels
+                    target_size = (img.width, img.height)
+        except Exception: continue
+
+    if not target_size: return "Error processing images", 500
+
+    # Create fused image
+    sum_array = np.zeros((target_size[1], target_size[0], 3), dtype=np.float32)
+    valid_count = 0
+    
+    for p in portrait_files:
+        try:
+            with Image.open(p) as img:
+                resized = img.resize(target_size, Image.Resampling.LANCZOS).convert('RGB')
+                sum_array += np.array(resized, dtype=np.float32)
+                valid_count += 1
+        except Exception: continue
+            
+    if valid_count > 0:
+        fused_array = sum_array / valid_count
+        fused_img = Image.fromarray(np.uint8(fused_array))
+        
+        # Add saturation
+        fused_img = ImageEnhance.Color(fused_img).enhance(1.3)
+        fused_img = ImageEnhance.Contrast(fused_img).enhance(1.5)
+        fused_img = ImageEnhance.Brightness(fused_img).enhance(1.2)
+        
+        
+        # Save as fused.jpg inside the 'fused' folder
+        fused_img.save(os.path.join(fused_dir, 'fused.jpg'), quality=90)
+        return "Fusion complete", 200
+    
+    return "No valid images to fuse", 500
+    
+
+
+# @app.route('/gallery/<group_name>/upload_signature', methods=['POST'])
+# def upload_signature(group_name):
+    # data = request.json.get('image')
+    # if data:
+        # header, encoded = data.split(",", 1)
+        # decoded = base64.b64decode(encoded)
+        
+        # num_sig = len(os.listdir(os.path.join(GROUPS_DIR, group_name, 'signatures')))
+        # filename = f"signature_{num_sig + 1}.png"
+        # filepath = os.path.join(GROUPS_DIR, group_name, 'signatures', filename)
+        
+        # print(f'Processing, cropping, resizing, and centering image for {filepath}')
+        
+        # # 1. Load the binary data
+        # image = Image.open(io.BytesIO(decoded)).convert('RGBA')
+            
+        # # 2. Crop to the exact boundaries of the drawn lines
+        # bbox = image.getbbox()
+        # if bbox:
+            # image = image.crop(bbox)
+            
+        # # 3. Find the fused photo to get target dimensions
+        # fused_path = os.path.join(GROUPS_DIR, group_name, 'fused', 'fused.jpg')
+        
+        # if os.path.exists(fused_path):
+            # with Image.open(fused_path) as fused_img:
+                # target_w, target_h = fused_img.size
+                
+            # safe_w, = target_w * 0.80, 
+            # safe_h = target_h * 0.80
+            # # 4. Get the cropped signature dimensions and calculate the scale factor
+            # sig_w, sig_h = image.size
+            # scale = min(safe_w / sig_w, safe_h / sig_h)
+            # new_w = int(sig_w * scale)
+            # new_h = int(sig_h * scale)
+            
+            # # 5. Resize the cropped signature to its new massive size
+            # resized_image = image.resize((new_w, new_h), Image.Resampling.LANCZOS)
+            
+            # # Softens the harsh, jagged edges of the digital ink
+            # resized_image = resized_image.filter(ImageFilter.SMOOTH_MORE)
+            
+            # # 6. Create a new, fully transparent canvas exactly the size of the fused photo
+            # canvas = Image.new('RGBA', (target_w, target_h), (0, 0, 0, 0))
+            
+            # # 7. Calculate the (X, Y) coordinates to paste the *resized* signature in the center
+            # paste_x = (target_w - new_w) // 2
+            # paste_y = (target_h - new_h) // 2
+            
+            # # 8. Paste the resized signature onto the center of the transparent canvas
+            # canvas.paste(resized_image, (paste_x, paste_y), resized_image)
+            
+        # # 10. Save to disk
+        # canvas.save(filepath, "PNG")
+        
+        # return "OK", 200
+        
+    # return "Error", 400
+    
+    
+@app.route('/gallery/<group_name>/upload_signature', methods=['POST'])
 def upload_signature(group_name):
     data = request.json.get('image')
     if data:
         header, encoded = data.split(",", 1)
         decoded = base64.b64decode(encoded)
-        sig_count = len(os.listdir(os.path.join(GROUPS_DIR, group_name, 'signatures')))
-        filename = f"signature_{sig_count + 1}.png"
+        
+        num_sig = len(os.listdir(os.path.join(GROUPS_DIR, group_name, 'signatures')))
+        filename = f"signature_{num_sig + 1}.png"
         filepath = os.path.join(GROUPS_DIR, group_name, 'signatures', filename)
-        with open(filepath, "wb") as f:
-            f.write(decoded)
+        
+        print(f'Processing and mapping signature for {filepath}')
+        
+        # 1. Load the binary data from the frontend canvas
+        image = Image.open(io.BytesIO(decoded)).convert('RGBA')
+            
+        # 2. Find the fused photo to get the TRUE target dimensions
+        fused_path = os.path.join(GROUPS_DIR, group_name, 'fused', 'fused.jpg')
+        
+        if os.path.exists(fused_path):
+            with Image.open(fused_path) as fused_img:
+                target_w, target_h = fused_img.size
+            
+            # 3. Resize the whole signature layer to match the fused photo's resolution
+            # Because the aspect ratios match exactly, this perfectly maps the ink 
+            # to where the user drew it, just at the correct high resolution.
+            image = image.resize((target_w, target_h), Image.Resampling.LANCZOS)
+            
+            # 4. (Optional) Soften the harsh, jagged edges of the digital ink
+            image = image.filter(ImageFilter.SMOOTH_MORE)
+            
+        # 5. Save directly to disk
+        image.save(filepath, "PNG")
+        
         return "OK", 200
+        
     return "Error", 400
-
-@app.route('/group/<group_name>/synthesize', methods=['POST'])
-def synthesize(group_name):
-    if request.form.get('password') != KUSTOS_PASSWORD:
-        flash("Unauthorized: Incorrect password to synthesize.")
-        return redirect(url_for('view_group', group_name=group_name))
-
-    group_path = os.path.join(GROUPS_DIR, group_name)
-    portrait_dir = os.path.join(group_path, 'portraits')
-    portrait_files = os.listdir(portrait_dir)
     
-    if not portrait_files:
-        flash("Cannot synthesize: No portraits found.")
-        return redirect(url_for('view_group', group_name=group_name))
+    
+    
+@app.route('/gallery/<group_name>/fuse_signatures', methods=['POST'])
+def run_fuse_signatures(group_name):
+    # Path to the signatures folder for this group
+    sig_dir = os.path.join(GROUPS_DIR, group_name, 'signatures')
+    
+    if not os.path.exists(sig_dir):
+        return "Signatures directory not found", 404
 
-    threading.Thread(target=run_synthesis_pipeline, args=(group_name,), daemon=True).start()
+    # Load all unique signature filenames
+    signatures = [f for f in os.listdir(sig_dir) if f.startswith("signature_") and f.endswith(".png")]
+    
+    if not signatures:
+        return "No signatures to fuse", 200
 
-    flash("Synthesis started in the background! Refresh the page in a few moments to see results.")
-    return redirect(url_for('view_group', group_name=group_name))
+    # Determine dimensions from the first signature
+    first_sig_path = os.path.join(sig_dir, signatures[0])
+    with Image.open(first_sig_path) as first_sig:
+        width, height = first_sig.size
 
+    # Create a new, fully transparent image
+    mask = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+
+    # Paste each signature onto the transparent mask
+    for sig_name in signatures:
+        sig_path = os.path.join(sig_dir, sig_name)
+        with Image.open(sig_path) as sig:
+            # Pasting with itself as the third argument uses its alpha channel
+            mask.paste(sig, (0, 0), sig)
+
+    # Save the combined mask (overwriting if it exists)
+    save_path = os.path.join(sig_dir, 'fused_signatures.png')
+    mask.save(save_path, "PNG")
+    
+    print(f"DEBUG: Successfully fused {len(signatures)} signatures for {group_name}")
+    return "Fusing complete", 200
+    
+@app.route('/gallery/<group>/<directory>/<path:filename>')
+def serve_media(group, directory, filename):
+    target_dir = os.path.join(GROUPS_DIR, group, directory)
+    return send_from_directory(target_dir, filename)
+    
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(host='0.0.0.0', port=5000)
