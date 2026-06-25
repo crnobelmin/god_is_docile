@@ -16,28 +16,6 @@ def image_to_rgb(image):
         
     return pixels
     
-# -------------------- CONVERT RGB VALUES TO ESTIMATION OF LINEAR PHYSICAL LIGHT --------------------
-def rgb_to_physical_light(rgb_pixels: np.ndarray) -> np.ndarray:
-    """
-    Converts normalized sRGB data (0.0 - 1.0) into linear physical light by completely undoing the standard sRGB gamma companding curve.
-    
-    Args:
-        rgb_pixels: Nx3 NumPy array of normalized float32 color channels.
-        
-    Returns:
-        Nx3 NumPy array of linear physical light values (0.0 - 1.0).
-    """
-    # Standard official sRGB inverse piecewise transformation
-    # 1. Very dark values use a strict linear divider to prevent infinite slope noise
-    # 2. Everything else uses the official sRGB power-curve calculation
-    physical_pixels = np.where(
-        rgb_pixels <= 0.04045,
-        rgb_pixels / 12.92,
-        ((rgb_pixels + 0.055) / 1.055) ** 2.4
-    )
-    
-    return physical_pixels
-    
 # -------------------- PIXEL SPACE CONVERSIONS --------------------
 def rgb_to_luminance(rgb_pixels: np.ndarray, rec: str ='709'):
     """

@@ -1,11 +1,11 @@
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', () => { 
     // Scene Setup
     const canvas = document.querySelector('#bg-canvas');
     const scene = new THREE.Scene();
     
     // Optional: Add some dark fog to fade distant stars into the void
-    scene.fog = new THREE.FogExp2(0x000000, 0.02);
-	scene.background = new THREE.Color(0xffffff);
+    scene.fog = new THREE.FogExp2(0xffffff, 0.02);
+	  scene.background = new THREE.Color(0x000000);
 
     const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
     camera.position.z = 10;
@@ -63,7 +63,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Slowly rotate the entire galaxy of stars
         starMesh.rotation.y += 0.0001;
-        starMesh.rotation.x += 0.0001;
+        starMesh.rotation.x += 0.001;
 
         renderer.render(scene, camera);
     }
