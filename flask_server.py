@@ -10,7 +10,8 @@ app.secret_key = 'kustos_session_key_2026'
 # Set directories
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 GROUPS_DIR = os.path.join(BASE_DIR, 'visitor_groups')
-os.makedirs(GROUPS_DIR)
+
+#os.makedirs(GROUPS_DIR)
 
 # Set a password
 KUSTOS_PASS = 'kustosisdocile'
@@ -83,7 +84,77 @@ def check_signatures_exist(group):
     
     return True
     
+# -------------------- PIXEL CONVERSIONS --------------------
+def convert_img_to_rgb(image):
+    # Source: https://www.niwa.nu/2013/05/math-behind-colorspace-conversions-rgb-hsl/
+    
+    # Extract an array of pixels and normalize it (RGB values go from 0 to 255)
+    pixels = np.array(image.convert("RGB"), dtype=np.float32) / 255.0
+   
+    # Reshape pixels from height x width to 3 columns
+    pixels = pixels.reshape(-1, 3)
+        
+    return pixels
+    
+def convert_rgb_to_luminance(rgb_pixels: np.ndarray, rec: str ='709'):
+    """
+    Calculates luminance from RGB values using the specified Rec. standard.
+    
+    Args:
+        rgb_pixels: Nx3 array of normalized RGB values.
+        rec: '601', '709', or '2020' — selects the luminance coefficients.
+    
+    Returns:
+        1D array of luminance values (normalized 0–1).
+    """
+    # Define coefficients based on Rec standard
+    rec = str(rec)
+    if rec == '601':
+        coeffs = (0.299, 0.587, 0.114)
+    elif rec == '709':
+        coeffs = (0.2126, 0.7152, 0.0722)
+    elif rec == '2020':
+        coeffs = (0.2627, 0.6780, 0.0593)
+    else:
+        raise ValueError("Unsupported Rec format. Use '601', '709', or '2020'.")
+
+    r_coef, g_coef, b_coef = coeffs
+
+    # Calculate luminance
+    luminance = (
+        rgb_pixels[:, 0] * r_coef +
+        rgb_pixels[:, 1] * g_coef +
+        rgb_pixels[:, 2] * b_coef
+    )
+
+    return luminance
+    
 def create_signed_portrait_numpy_array(group):
+    with Image.open(os.path.join(GROUPS_DIR, group, fused, 'fused_signature.png')) as fused_signature:
+        signature_alpha_channel = np.array(fused_signature.convert('RGBA'))[:,:,3]
+        signature_mask = signature_alpha_channel > 0
+        
+    with Image.open(os.path.join(GROUPS_DIR, group, fused, 'fused_portrait.jpg')) as fused_portrait:
+        masked_rgb_array = convert_img_to_rgb(fused_portrait)[signature_mask]
+        masked_luma_array = convert_rgb_to_luminance(masked_rgb_array)
+        masked_portrait_array = np.join(masked_portrait_rgb_array, masked_luminance_array) # CHECK THIS
+    
+    output_path = os.path.join(GROUPS_DIR, group, 'outputs')
+
+    np.save(os.path.join(output_path, ''))
+
+    
+    signed_portrait_rgb_path = os.path.join(GROUPS_DIR, group, 'outputs', 'signed_portrait_rgb.npy')
+    masked_portrait_luminance_path = os.path.join(GROUPS_DIR, group, 'outputs', 'signed_portrait_luminance.npy')
+    
+    return None
+    
+    
+    # Overlay in numpy - Remove rows where png A channel is 0
+
+
+
+
     return None
 
 # -------------------- HOME PAGE -------------------- #
@@ -110,7 +181,7 @@ def create_group():
     if not os.path.exists(group_path):
         os.makedirs(os.path.join(group_path, 'portraits'))
         os.makedirs(os.path.join(group_path, 'signatures'))
-        os.makedirs(os.path.join(group_path, 'audio'))
+        os.makedirs(os.path.join(group_path, 'outputs'))
         os.makedirs(os.path.join(group_path, 'fused'))
         flash(f"Visitor group '{safe_name}' created.")
     else:
@@ -189,7 +260,7 @@ def upload_signature(group):
 @app.route('/gallery/<group>/crete_fused_signature', methods=['POST'])
 def run_fuse_signatures(group):
     check = check_signatures_exist(group)
-    if check != True
+    if check != True:
         return check
     
     target_size = find_smallest_portrait_resolution(group)
@@ -201,7 +272,7 @@ def run_fuse_signatures(group):
         with Image.open(sig_path) as sig:
             mask.paste(sig, (0, 0), sig)
 
-    signature_canvas.save(os.path.join(GROUPS_DIR, group, 'fused', 'fused_signatures.png'), "PNG")
+    signature_canvas.save(os.path.join(GROUPS_DIR, group, 'fused', 'fused_signature.png'), "PNG")
     
     return "Signatures fused", 200
     
@@ -220,8 +291,8 @@ def kustos_dashboard():
     groups = [d for d in os.listdir(GROUPS_DIR) if os.path.isdir(os.path.join(GROUPS_DIR, d))]
     return render_template('kustos_dashboard.html', groups=groups)
     
-@app.route('/run_installation')
-def run_installation(group):
+#@app.route('/run_installation')
+#def run_installation(group):
   
     
 if __name__ == '__main__':
