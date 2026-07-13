@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="frame glass-effect">
+	<a href="/gallery">&larr; View Visitors</a>
+
+            <div class="flex-row">
+				<h1 style="text-align: center; color:black;" id="group-name" data-group="{{group_name}}">{{group_name}}</h1>	
+
+                <a href="/gallery/{{group_name}}/play" class="glowColor">
+					<h3>&rarr; Play</h3>
+                </a>
+            </div>
+
+		
+	<!-- Fused with sig overlay -->
+
+	{% if portraits %}
+	<div class="reveal-container" style="position: relative; width: 100%;">
+		<img class="basePhoto" id="basePhoto" src="/gallery/{{group_name}}/fused/fused_portrait.jpg">
+
+		<img class="maskedPhoto" id="maskedPhoto" src="/gallery/{{group_name}}/fused/fused_signature.png?t={{ range(1000) | random }}" 
+	style="
+				position: absolute;
+				top: 0;
+				left: 0;
+				width: 100%;
+				height: 100%;
+				pointer-events: none;
+				mix-blend-mode: difference; /* This creates the negative/invert effect */
+			">
+			
+		<canvas id="sigCanvas" 
+				style="position: absolute; top:0; left:0; width:100%; height:100%; cursor: crosshair;">
+		</canvas>
+		
+		<img src="{{ url_for('static', filename='images/draw_hint.png') }}" class="draw-hint" alt="Draw here hint">
+	</div>
+	<button id="saveSigBtn">Add Signature</button>
+
+		
+	{% else %}
+		<div style="display:flex; flex-direction:row; align-items: center; gap: 10px;">
+			<h4>Upload Portraits</h4>
+			<input type="file" id="portraitInput" multiple accept="image/*">
+		</div>
+	{% endif %}
+
+
+
+
+
+
+
+	<!-- Portrait Slider -->
+	<div class="slider">
+		{% for p in portraits %}
+			<div>
+				<img src="/gallery/{{group_name}}/portraits/{{p}}" style="width: auto; max-height: 30vh;">
+			</div>
+		{% endfor %}
+	</div>
+</div>
+
+
+{% endblock %}
+
+
+
+
+{% block scripts %}
+<script>
+	const sigCount = "{{ num_sigs }}";
+	const groupName = document.getElementById('group-name').getAttribute('data-group');
+</script>
+<script src="{{ url_for('static', filename='js/signature_canvas.js') }}"></script>
+<script src="{{ url_for('static', filename='js/upload_and_fuse_images.js') }}"></script>
+<script src="{{ url_for('static', filename='js/play_installation.js') }}"></script>
+
+{% endblock %}

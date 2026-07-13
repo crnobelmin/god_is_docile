@@ -1,0 +1,300 @@
+/* BASE AND BACKGROUND */
+body {
+	margin: 0;
+	padding: 0;
+	overflow-x: hidden;
+	color: white; 
+	background-color: #111; /* Dark fallback */
+    font-family: sans-serif;
+}
+
+.content-wrapper {
+	position: relative;
+	z-index: 10; /* Keeps your gallery/UI on top */
+}
+
+/* 2. Lock the canvas to the background */
+#bg-canvas {
+	position: fixed;
+	top: 0;
+	left: 0;
+	width: 100vw;
+	height: 100vh;
+	z-index: -1; /* Pushes it behind everything */
+	pointer-events: none; /* Crucial: lets users click your buttons instead of the canvas */
+}
+
+.frame { 
+	min-height: 100vh;
+	height: auto;
+    width: 40vw;
+    max-width: 95vw; 
+    margin: 0 auto; 
+    padding: 30px;
+	
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	
+	color: black;
+}
+
+.frame img {
+    width: 80%;
+}
+
+@media (max-width:960px) {
+    .frame {
+        width: 80vw;
+    }
+
+}
+
+
+.slider { 
+	display: flex;
+	flex-direction: row;
+	gap:20px;
+	width: 100%;
+	
+	scrollbar-width: 10px;
+	-webkit-overflow-scrolling: touch;
+	overflow-x: auto;
+	white-space: nowrap;
+	
+	padding: 10px;
+}
+
+.glass-effect {
+    /* 1. The transparent background (white or black with low opacity) */
+    background: rgba(255, 255, 255, 0.1);
+    
+    /* 2. The blur effect */
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px); /* Required for Safari support */
+    
+    box-shadow: 0 4px 30px var(--glow-color);
+		animation: rgbLoop 10s linear infinite;}
+}
+
+.flash { 
+    padding: 10px; 
+    background: #ffeaa7; 
+    margin-bottom: 20px; 
+    border-radius: 4px; 
+}
+
+
+
+/* GALLERY */
+    .auth-box { position: absolute; top: 20px; right: 20px; z-index: 100; background: rgba(0,0,0,0.8); padding: 20px; border-radius: 8px; border: 1px solid #333; }
+    .auth-box * { pointer-events: auto; /* Re-enable clicks for the form */ }
+	
+	
+
+    #viewport {
+        position: absolute; top: 0; left: 0; width: 100vw; height: 100vh;
+        cursor: grab; overflow: hidden; z-index: 1;
+    }
+    #viewport:active { cursor: grabbing; }
+
+    #canvas {
+        position: absolute; top: 0; left: 0;
+        transform-origin: 0 0; /* Important for zooming correctly */
+        /* Smooth out the scaling */
+        will-change: transform; 
+    }
+
+    /* 4. Mindmap Nodes (Cards) */
+    .mindmap-node {
+        position: absolute;
+        /* Center the anchor point of the card */
+        transform: translate(-50%, -50%); 
+        width: 250px;
+        border-radius: 8px;
+        text-align: center;
+        transition: border-color 0.2s, transform 0.2s;
+        z-index: 10;
+		color: black;
+		
+
+    }
+
+    .mindmap-node img { width: 100%; border-radius: 4px; pointer-events: none; 		/* 1. Add a subtle baseline glow */
+		box-shadow: 0 0 20px var(--glow-color);
+		animation: rgbLoop 10s linear infinite;}
+    .mindmap-node h1 { margin: 10px 0 0 0; font-size: 1.2rem; letter-spacing: 0.2rem; }
+    
+    /* Center Hub */
+    .hub-node {
+        width: 250px; height: 250px;
+		border-radius: 50%;
+        display: flex; align-items: center; justify-content: center;
+        font-weight: bold;
+		box-shadow: 0 0 200px var(--glow-color);
+		background: radial-gradient(transparent 0%, var(--glow-color) 100%);
+		animation: rgbLoop 10s linear infinite, breathe 6s ease-in-out infinite;
+    }
+
+    /* 5. Connecting Lines Layer */
+    #svg-layer {
+        position: absolute; top: 0; left: 0; overflow: visible; z-index: 5; pointer-events: none;
+    }
+	
+	
+	
+/* Rotating Colors */
+@property --glow-color {
+    syntax: '<color>';
+    initial-value: rgb(255, 0, 0);
+    inherits: false;
+}
+
+@keyframes rgbLoop {
+    0%   { --glow-color: rgb(255, 0, 0); }   /* Start Red */
+    25%  { --glow-color: rgb(255, 0, 0); }   /* End Red */
+    33%  { --glow-color: rgb(0, 255, 0); }   /* Fade to Green */
+    58%  { --glow-color: rgb(0, 255, 0); }   /* Fade to Green */
+    66%  { --glow-color: rgb(0, 0, 255); }   /* Fade to Blue */
+    92%  { --glow-color: rgb(0, 0, 255); }   /* Fade to Blue */
+    100%   { --glow-color: rgb(255, 0, 0); }   /* Start Red */
+	
+}
+
+@keyframes breathe {
+	0%   { transform: translate(-50%, -50%) scale(1); }
+    50%  { transform: translate(-50%, -50%) scale(1.15); } /* Grows 10% larger in the middle */
+    100% { transform: translate(-50%, -50%) scale(1); }
+}
+	
+
+.glowColor {
+    color:  var(--glow-color);
+    animation: rgbLoop 10s linear infinite;
+}
+
+.dashboard-item {
+    display: flex;
+	flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    margin-bottom: 50px;
+    padding-bottom: 80px;
+    border-bottom:var(--glow-color) 1px dashed;
+    animation: rgbLoop 10s linear infinite;
+}
+
+.flex-row {
+    display: flex;
+    width: 70%;
+	flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.basePhoto { 
+    padding: 10px; 
+    margin-bottom: 20px; 
+    border-radius: 4px;
+	width: 100%;
+	height: auto;
+}
+
+.maskedPhoto { 
+    padding: 10px; 
+    margin-bottom: 20px; 
+    border-radius: 4px;
+	width: 100%;
+	height: auto;
+}
+
+/* Ensure the mask applies correctly */
+/* 1. Define the animation for the background photo */
+@keyframes fadeBaseDown {
+    0%   { opacity: 1; }
+    100% { opacity: 1; }
+}
+
+/* 2. Define the animation for the mask reveal */
+@keyframes revealMaskUp {
+    0%   { opacity: 0; }
+    100% { opacity: 0.7; }
+}
+
+#basePhoto {
+    width: 100%; 
+    display: block; 
+    opacity: 1; /* Starting state */
+    /* animation: [name] [duration] [timing-function] [delay] [fill-mode] */
+    animation: fadeBaseDown 2.5s ease 1s forwards;
+}
+
+#maskedPhoto {
+    position: absolute; 
+    top: 0; 
+    left: 0; 
+    width: 100%; 
+    opacity: 0; /* Starting state */
+    animation: revealMaskUp 2.5s ease 1s forwards;
+    
+    /* Your Masking Properties */
+    -webkit-mask-size: contain; 
+    mask-size: contain;
+    -webkit-mask-repeat: no-repeat; 
+    mask-repeat: no-repeat;
+}
+
+
+
+.reveal-container {
+    overflow: hidden;
+}
+/* Ensure the canvas matches the aspect ratio of the images */
+#sigCanvas {
+    background: rgba(255, 255, 255, 0.01); /* Subtle hint that it's a drawing area */
+}
+
+
+
+
+/* Position and size the hint */
+.draw-hint {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%); /* Perfectly centers the image */
+    width: 25%; /* Adjust based on your PNG size */
+    height: auto; /* Adjust based on your PNG size */
+    z-index: 10; /* Ensures it sits on top of the canvas */
+    pointer-events: none; /* Clicks pass right through it */
+    
+    /* 2.5 seconds total: stays visible, then fades out */
+    animation: flashAndFade 2s forwards; 
+}
+
+/* The Keyframe Animation */
+@keyframes flashAndFade {
+    0% { 
+        opacity: 0; 
+        transform: translate(-50%, -50%) scale(0.9); 
+    }
+    15% { 
+        opacity: 0.7; 
+        transform: translate(-50%, -50%) scale(1.05); /* Slight "pop" in */
+    }
+    25% {
+        transform: translate(-50%, -50%) scale(1);
+    }
+    50% { 
+        opacity: 0.7; /* Hold visibility */
+    }
+    100% { 
+        opacity: 0; 
+        visibility: hidden; /* Removes it from the render tree completely */
+    }
+}
+
+.header-link {
+	color: black;
+}
