@@ -1,1 +1,4 @@
 visitor_groups/
+__pycache__/
+.vscode/
+.git/
