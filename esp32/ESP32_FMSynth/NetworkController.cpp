@@ -1,244 +1,98 @@
-// Single Value Processing
-// #include "Network.h"
+#include <WiFi.h>            // Core ESP32 Wi-Fi library
+#include <WiFiUdp.h>         // UDP socket connections
+#include <ArduinoJson.h>     // JSON parsing
 
-// #include <WiFi.h>
-// #include <WiFiUdp.h>
+#include "NetworkController.h" 
+#include "Parameters.h"        
 
-// #include "Parameters.h"
-
-
-// const char* ssid="Netmin";
-// const char* password="Belminet";
-
-
-// WiFiUDP udp;
-
-
-// void initNetwork()
-// {
-
-//     WiFi.begin(
-//         ssid,
-//         password
-//     );
-
-
-//     while(WiFi.status()!=WL_CONNECTED)
-//     {
-//         delay(200);
-//         Serial.print(".");
-//     }
-
-//     Serial.println();
-//     Serial.println("WiFi connected");
-
-//     Serial.print("ESP32 IP address: ");
-//     Serial.println(WiFi.localIP());
-
-//     Serial.print("UDP listening on port: ");
-//     Serial.println(12345);
-
-
-//     udp.begin(12345);
-// }
-
-
-
-// void networkUpdate()
-// {
-
-//     int size =
-//         udp.parsePacket();
-
-
-//     if(size)
-//     {
-
-//         char buffer[32];
-
-//         int len =
-//             udp.read(
-//                 buffer,
-//                 sizeof(buffer)-1
-//             );
-
-
-//         buffer[len]=0;
-
-
-//         float value =
-//             atof(buffer);
-
-
-
-//         value =
-//             constrain(
-//                 value,
-//                 0,
-//                 1
-//             );
-
-
-//         synthParams.frequency.store(
-//             130.0f +
-//             value*370.0f
-//         );
-
-
-//         synthParams.modulation.store(
-//             value*5.0f
-//         );
-
-//     }
-// }
-
-
-
-
-
-
-
-
-
-
-// JSON PROCESSING via broadcast
-
-#include <WiFi.h>
-#include <WiFiUdp.h>
-#include <ArduinoJson.h>
-
-#include "NetworkController.h"
-#include "Parameters.h"
-
+// Network credentials
 const char* ssid = "Netmin";
 const char* password = "Belminet";
+#define RECEIVER_ID "R" // Red Receiver
 
-// ----------------------------------------------------
-// Change this for each ESP32
-// ----------------------------------------------------
-#define RECEIVER_ID "R"
-// "G"
-// "B"
-// "L"
+// Create the UDP utility
+WiFiUDP udp; 
 
-WiFiUDP udp;
+
+static void processJsonPayload(const char* jsonBuffer)
+{
+    // Pre-allocate memory on the stack for the JSON tree
+    StaticJsonDocument<512> json; 
+
+    // Deserialize the JSON string into doc object
+    DeserializationError err = deserializeJson(json, jsonBuffer);
+
+    // Extract the JSON object assigned to this RECEIVER_ID
+    JsonObject params = json[RECEIVER_ID];
+
+    // Extract and store parameters
+    float chanval = params["channel_value"] | 1.0f;
+    float p1 = params["param_1"];
+    
+    synthParams.frequency.store(chanval);
+    synthParams.modulation.store(p1); 
+}
 
 void initNetwork()
 {
+    Serial.print("Connecting to WiFi...");
     WiFi.begin(ssid, password);
 
+    // Allow hardware to automatically handle re-connections seamlessly in the background
+    WiFi.setAutoReconnect(true);
+
+    // Block execution until connection is established
     while (WiFi.status() != WL_CONNECTED)
     {
-        delay(200);
+        delay(500);
         Serial.print(".");
-        WiFi.reconnect();
     }
 
-    Serial.println();
-    Serial.println("WiFi connected");
+    Serial.println("\nWiFi connected");
+    Serial.print("Receiver ID: ");   Serial.println(RECEIVER_ID);
+    Serial.print("IP address: ");    Serial.println(WiFi.localIP());
+    Serial.print("UDP Port: ");      Serial.println(12345);
 
-    Serial.print("Receiver ID: ");
-    Serial.println(RECEIVER_ID);
-
-    Serial.print("IP address: ");
-    Serial.println(WiFi.localIP());
-
-    Serial.print("UDP Port: ");
-    Serial.println(12345);
-
+    // Bind UDP listener to port 12345
     udp.begin(12345);
 }
 
+/**
+ * Regularly checks for incoming UDP packets. Call this inside your main loop.
+ */
 void networkUpdate()
 {
-    int packetSize = udp.parsePacket();
-
-    if (!packetSize)
-        return;
-
-    char buffer[512];
-
-    int len = udp.read(
-        buffer,
-        sizeof(buffer) - 1
-    );
-
-    if (len <= 0)
-        return;
-
-    buffer[len] = '\0';
-
-    StaticJsonDocument<512> doc;
-
-    DeserializationError err =
-        deserializeJson(doc, buffer);
-
-    if (err)
+    // Safety Connection Guard: If Wi-Fi drops, skip UDP checks and print an alert every 2 seconds
+    if (WiFi.status() != WL_CONNECTED)
     {
-        Serial.print("JSON Error: ");
-        Serial.println(err.c_str());
-        return;
+        static uint32_t lastWarningTime = 0;
+        if (millis() - lastWarningTime > 2000)
+        {
+            Serial.println("WiFi disconnected! Waiting for background auto-reconnect...");
+            lastWarningTime = millis();
+        }
+        return; 
     }
 
-    //--------------------------------------------------
-    // Optional sequence number
-    //--------------------------------------------------
+    // Check if a network packet has arrived
+    int packetSize = udp.parsePacket();
+    if (!packetSize) 
+    {
+        return; // No packet available; exit early to keep the main loop fast
+    }
 
-    uint32_t sequence =
-        doc["seq"] | 0;
+    char buffer[512]; // Buffer allocation to store incoming packet characters
 
-    (void)sequence;
+    // Read the packet contents into our buffer array
+    int len = udp.read(buffer, sizeof(buffer) - 1);
 
-    //--------------------------------------------------
-    // Get this receiver's object
-    //--------------------------------------------------
+    if (len <= 0) 
+    {
+        return; // Guard against read execution failures
+    }
 
-    JsonObject receiver =
-        doc[RECEIVER_ID];
+    buffer[len] = '\0'; // Append null-terminator to make it a valid C-string
 
-    if (receiver.isNull())
-        return;
-
-    //--------------------------------------------------
-    // Read parameters
-    //--------------------------------------------------
-
-    float value =
-        receiver["value"] | 1.0f;
-
-    value = constrain(
-        value,
-        0.0f,
-        1.0f
-    );
-
-    //--------------------------------------------------
-    // Update lock-free synth parameters
-    //--------------------------------------------------
-
-    synthParams.frequency.store(
-        130.0f +
-        value * 370.0f
-    );
-
-    synthParams.modulation.store(
-        value * 5.0f
-    );
-
-    //--------------------------------------------------
-    // Future parameters
-    //--------------------------------------------------
-
-    // float volume =
-    //     receiver["volume"] | 1.0f;
-
-    // float lfoDepth =
-    //     receiver["lfoDepth"] | 0.5f;
-
-    // float fmIndex =
-    //     receiver["fmIndex"] | 2.0f;
-
-    // synthParams.volume.store(volume);
-    // synthParams.lfoDepth.store(lfoDepth);
-    // synthParams.fmIndex.store(fmIndex);
+    // ADJUSTMENT: The raw data handling is decoupled and delegated to our helper function
+    processJsonPayload(buffer);
 }

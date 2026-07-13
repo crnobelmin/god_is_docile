@@ -119,14 +119,14 @@ window.addEventListener('load', () => {
         })
         .then(response => {
             if (!response.ok) throw new Error('Upload failed');
-            return fetch(`/gallery/${groupName}/fuse_signatures`, { method: 'POST' });
+            return fetch(`/gallery/${groupName}/create_fused_signature`, { method: 'POST' });
         })
         .then(response => {
             if (!response.ok) throw new Error('Fusion failed');
             
             const maskElement = document.getElementById('maskedPhoto');
             const timestamp = new Date().getTime();
-            const newMaskUrl = `/gallery/${groupName}/signatures/fused_signatures.png?t=${timestamp}`;
+            const newMaskUrl = `/gallery/${groupName}/fused/fused_signatures.png?t=${timestamp}`;
             
             maskElement.style.webkitMaskImage = `url('${newMaskUrl}')`;
             maskElement.style.maskImage = `url('${newMaskUrl}')`;

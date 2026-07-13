@@ -1,35 +1,33 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div id="viewport">
-    <div id="canvas">
-        <svg id="svg-layer"></svg>
+<div class="frame glass-effect">
+    <a href="/gallery">&larr; View Visitors</a>
 
-		<a href="/gallery/add_visitor" class="header-link">
-			<div class="mindmap-node hub-node" id="hub">
-				<h1>BECOME</h1>
-			</div>
-		</a>
-		
+    {% for group in groups %}
+        <div class="dashboard-item">
+            <div class="flex-row">
+                <a href="/gallery/{{group}}" style="text-decoration: none; width: auto; display: flex; flex-direction: column; align-items: center; color:black;">
+                    <h1>{{group}}</h1>
+                </a>
 
-        {% for group in groups %}
-            <a href="/gallery/{{group}}" style="text-decoration: none; color: inherit;">
-			
-                <div class="mindmap-node group-card" data-index="{{ loop.index0 }}">
-				
-                    <div class="image-wrapper">
-                        <img src="/gallery/{{group}}/fused/fused.jpg" alt="Fused Portrait of {{group}}">
-					<h1>{{group}}</h1>
-						
-                    </div>
-                </div>
-            </a>
-        {% endfor %}
-    </div>
+                <a href="#" 
+                    onclick="triggerPlay(event, '{{group}}')" 
+                    style="text-decoration: none; width: auto; display: flex; flex-direction: column; align-items: center;" 
+                    class="glowColor">
+                        <h3>&rarr; Play</h3>
+                </a>
+            </div>
+
+            <img src="/gallery/{{group}}/fused/fused_portrait.jpg" alt="Fused Portrait of {{group}}">
+        </div>
+    {% endfor %}
 </div>
+
 {% endblock %}
 
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='js/mind_map.js') }}"></script>
+<script src="{{ url_for('static', filename='js/play_installation.js') }}"></script>
+
 {% endblock %}

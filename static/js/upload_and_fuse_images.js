@@ -28,7 +28,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			.then(response => {
 				if (!response.ok) throw new Error('Upload failed');
 				// 2. Trigger the fusion process
-				return fetch(`/gallery/${groupName}/fuse_portraits`, { method: 'POST' });
+				return fetch(`/gallery/${groupName}/create_fused_portrait`, { method: 'POST' });
 			})
 			.then(response => {
 				if (!response.ok) throw new Error('Fusion failed');
